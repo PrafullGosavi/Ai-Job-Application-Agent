@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}New Application – AI Job Agent{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>New Application</h1>
+</div>
+
+<div class="two-col">
+  <!-- Left: input form -->
+  <div class="card" id="input-card">
+    <div class="card-header"><h2>Job Details</h2></div>
+    <div class="card-body">
+      <div class="form-group">
+        <label for="job_url">Job Posting URL <span class="required">*</span></label>
+        <input type="url" id="job_url" class="input" placeholder="https://jobs.example.com/posting/12345" />
+      </div>
+      <div class="form-group">
+        <label>Your Resume <span class="required">*</span></label>
+        <!-- PDF upload drop zone -->
+        <div id="drop-zone" class="drop-zone" onclick="document.getElementById('resume_pdf').click()">
+          <i class="fa-solid fa-file-pdf drop-zone-icon"></i>
+          <p class="drop-zone-text">Drag &amp; drop your PDF here, or <strong>click to browse</strong></p>
+          <p class="drop-zone-hint">PDF only · Text will be extracted automatically</p>
+          <div id="file-name" class="file-name hidden"></div>
+        </div>
+        <input type="file" id="resume_pdf" accept=".pdf" class="hidden" onchange="handleFileSelect(this.files[0])" />
+        <!-- Fallback textarea (hidden by default, shown if PDF parse fails) -->
+        <div id="text-fallback" class="hidden mt-sm">
+          <label for="resume_text" class="label-sm">Or paste resume text manually:</label>
+          <textarea id="resume_text" class="input textarea" rows="8"
+            placeholder="Paste your resume text here…"></textarea>
+        </div>
+        <div id="parse-status" class="parse-status hidden"></div>
+      </div>
+      <button id="run-btn" class="btn btn-primary btn-full" onclick="runAgent()">
+        <i class="fa-solid fa-bolt"></i> Run Agent
+      </button>
+    </div>
+  </div>
+
+  <!-- Right: progress + result -->
+  <div class="card" id="progress-card">
+    <div class="card-header"><h2>Agent Progress</h2></div>
+    <div class="card-body">
+      <div id="steps-container">
+        <div class="step" id="step-scrape">
+          <div class="step-icon idle"><i class="fa-solid fa-globe"></i></div>
+          <div class="step-text">
+            <div class="step-title">Scrape Job Posting</div>
+            <div class="step-msg" id="msg-scrape">Waiting…</div>
+          </div>
+        </div>
+        <div class="step" id="step-analyze">
+          <div class="step-icon idle"><i class="fa-solid fa-magnifying-glass-chart"></i></div>
+          <div class="step-text">
+            <div class="step-title">Analyze Resume</div>
+            <div class="step-msg" id="msg-analyze">Waiting…</div>
+          </div>
+        </div>
+        <div class="step" id="step-rewrite">
+          <div class="step-icon idle"><i class="fa-solid fa-pen-nib"></i></div>
+          <div class="step-text">
+            <div class="step-title">Rewrite Resume</div>
+            <div class="step-msg" id="msg-rewrite">Waiting…</div>
+          </div>
+        </div>
+        <div class="step" id="step-cover_letter">
+          <div class="step-icon idle"><i class="fa-solid fa-envelope-open-text"></i></div>
+          <div class="step-text">
+            <div class="step-title">Generate Cover Letter</div>
+            <div class="step-msg" id="msg-cover_letter">Waiting…</div>
+          </div>
+        </div>
+        <div class="step" id="step-complete">
+          <div class="step-icon idle"><i class="fa-solid fa-check-circle"></i></div>
+          <div class="step-text">
+            <div class="step-title">Save to Database</div>
+            <div class="step-msg" id="msg-complete">Waiting…</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="result-actions" class="hidden mt-md">
+        <div class="alert alert-success" id="success-banner"></div>
+        <a id="view-link" href="#" class="btn btn-primary btn-full">
+          <i class="fa-solid fa-eye"></i> View Application
+        </a>
+      </div>
+
+      <div id="error-banner" class="alert alert-error hidden"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── PDF upload / drag-drop ────────────────────────────────────────────────────
+let _resumeText = '';
+
+const dropZone = document.getElementById('drop-zone');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFileSelect(file);
+});
+
+async function handleFileSelect(file) {
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    showParseStatus('Only PDF files are supported.', 'error');
+    return;
+  }
+  const nameEl = document.getElementById('file-name');
+  nameEl.textContent = file.name;
+  nameEl.classList.remove('hidden');
+  showParseStatus('<i class="fa-solid fa-spinner fa-spin"></i> Extracting text from PDF…', 'loading');
+
+  const fd = new FormData();
+  fd.append('resume_pdf', file);
+  try {
+    const resp = await fetch('/api/parse-resume-pdf', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (data.error) {
+      showParseStatus(data.error + ' — paste manually below.', 'error');
+      document.getElementById('text-fallback').classList.remove('hidden');
+    } else {
+      _resumeText = data.resume_text;
+      showParseStatus(`<i class="fa-solid fa-check"></i> Resume extracted (${_resumeText.length.toLocaleString()} chars)`, 'success');
+      document.getElementById('text-fallback').classList.add('hidden');
+    }
+  } catch (err) {
+    showParseStatus('Network error. Try pasting manually.', 'error');
+    document.getElementById('text-fallback').classList.remove('hidden');
+  }
+}
+
+function showParseStatus(html, type) {
+  const el = document.getElementById('parse-status');
+  el.innerHTML = html;
+  el.className = 'parse-status parse-status-' + type;
+  el.classList.remove('hidden');
+}
+
+// ── Agent run ─────────────────────────────────────────────────────────────────
+async function runAgent() {
+  const jobUrl = document.getElementById('job_url').value.trim();
+  // Use PDF-extracted text, or fallback textarea
+  const fallbackText = (document.getElementById('resume_text') || {}).value || '';
+  const resumeText = _resumeText || fallbackText.trim();
+
+  if (!jobUrl) { alert('Please enter a Job Posting URL.'); return; }
+  if (!resumeText) { alert('Please upload your resume PDF or paste resume text.'); return; }
+
+  resetSteps();
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('run-btn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Running…';
+  document.getElementById('result-actions').classList.add('hidden');
+  document.getElementById('error-banner').classList.add('hidden');
+
+  const resp = await fetch('/api/run-agent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ job_url: jobUrl, resume_text: resumeText }),
+  });
+  const { run_id, error } = await resp.json();
+  if (error) { showError(error); return; }
+
+  const evtSource = new EventSource(`/api/run-agent/stream/${run_id}`);
+  evtSource.onmessage = function(e) {
+    const data = JSON.parse(e.data);
+    handleEvent(data);
+    if (data.step === 'error') { evtSource.close(); return; }
+    if (data.step === 'saved') {
+      evtSource.close();
+      document.getElementById('view-link').href = `/application/${data.app_id}`;
+      document.getElementById('success-banner').textContent =
+        'Application saved! ID: ' + data.app_id;
+      document.getElementById('result-actions').classList.remove('hidden');
+      document.getElementById('run-btn').disabled = false;
+      document.getElementById('run-btn').innerHTML = '<i class="fa-solid fa-bolt"></i> Run Agent';
+    }
+  };
+  evtSource.onerror = function() {
+    evtSource.close();
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').innerHTML = '<i class="fa-solid fa-bolt"></i> Run Agent';
+  };
+}
+
+function handleEvent(data) {
+  const step = data.step;
+  const msg = data.message || '';
+  if (step === 'start' || step === 'ping') return;
+
+  const msgEl = document.getElementById('msg-' + step);
+  const stepEl = document.getElementById('step-' + step);
+  const iconEl = stepEl ? stepEl.querySelector('.step-icon') : null;
+
+  if (msgEl) msgEl.textContent = msg;
+  if (iconEl) {
+    iconEl.classList.remove('idle', 'active', 'done', 'error-icon');
+    if (data.done) {
+      iconEl.classList.add('done');
+      iconEl.innerHTML = '<i class="fa-solid fa-check"></i>';
+    } else if (step === 'error') {
+      iconEl.classList.add('error-icon');
+      iconEl.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+      showError(msg);
+    } else {
+      iconEl.classList.add('active');
+      iconEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    }
+  }
+  if (step === 'complete' && stepEl) {
+    const completeIcon = document.querySelector('#step-complete .step-icon');
+    if (completeIcon) {
+      completeIcon.classList.remove('idle', 'active');
+      completeIcon.classList.add('active');
+      completeIcon.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    }
+    document.getElementById('msg-complete').textContent = 'Saving…';
+  }
+}
+
+function resetSteps() {
+  ['scrape','analyze','rewrite','cover_letter','complete'].forEach(s => {
+    const el = document.getElementById('step-' + s);
+    if (!el) return;
+    const icon = el.querySelector('.step-icon');
+    icon.className = 'step-icon idle';
+    const icons = {scrape:'fa-globe',analyze:'fa-magnifying-glass-chart',
+      rewrite:'fa-pen-nib',cover_letter:'fa-envelope-open-text',complete:'fa-check-circle'};
+    icon.innerHTML = `<i class="fa-solid ${icons[s]}"></i>`;
+    document.getElementById('msg-' + s).textContent = 'Waiting…';
+  });
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-banner');
+  el.textContent = 'Error: ' + msg;
+  el.classList.remove('hidden');
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('run-btn').innerHTML = '<i class="fa-solid fa-bolt"></i> Run Agent';
+}
+</script>
+{% endblock %}

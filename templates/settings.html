@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Settings – AI Job Agent{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Settings</h1>
+</div>
+
+<div class="two-col">
+  <!-- Left: Email tracker -->
+  <div>
+    <div class="card mb-md">
+      <div class="card-header">
+        <h2><i class="fa-solid fa-envelope-open-text"></i> Email Tracker</h2>
+        <div id="tracker-dot" class="tracker-dot {% if tracker.running %}dot-green{% else %}dot-grey{% endif %}"></div>
+      </div>
+      <div class="card-body">
+        <p class="muted mb-md">
+          The tracker polls your Gmail inbox every 5 minutes using IMAP, detects hiring-related emails
+          (interviews, offers, rejections), and auto-updates your application status.
+        </p>
+
+        <div class="tracker-status-row">
+          <span>Status:</span>
+          <strong id="tracker-status-text">{{ 'Running' if tracker.running else 'Stopped' }}</strong>
+        </div>
+        <div class="tracker-status-row">
+          <span>Last run:</span>
+          <span>{{ tracker.last_run or '—' }}</span>
+        </div>
+        <div class="tracker-status-row">
+          <span>Emails processed:</span>
+          <span>{{ tracker.emails_processed }}</span>
+        </div>
+        <div class="tracker-status-row">
+          <span>Events created:</span>
+          <span>{{ tracker.events_created }}</span>
+        </div>
+        {% if tracker.last_error %}
+        <div class="alert alert-error mt-sm">{{ tracker.last_error }}</div>
+        {% endif %}
+
+        <div class="mt-md" style="display:flex;gap:10px;flex-wrap:wrap;">
+          {% if tracker.running %}
+          <button class="btn btn-outline" onclick="trackerAction('stop')">
+            <i class="fa-solid fa-stop"></i> Stop Tracker
+          </button>
+          {% else %}
+          <button class="btn btn-primary" onclick="trackerAction('start')">
+            <i class="fa-solid fa-play"></i> Start Tracker
+          </button>
+          {% endif %}
+          <button class="btn btn-outline" onclick="trackerAction('poll')">
+            <i class="fa-solid fa-rotate"></i> Poll Now
+          </button>
+        </div>
+        <div id="tracker-action-result" class="mt-sm hidden"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h2><i class="fa-solid fa-gear"></i> IMAP / SMTP Config</h2></div>
+      <div class="card-body">
+        <p class="muted mb-md">
+          Configure these in your <code>.env</code> file, then restart the server.
+          The tracker uses <strong>SMTP_USER</strong> and <strong>SMTP_PASSWORD</strong> (Gmail App Password) for IMAP access.
+        </p>
+
+        <div class="settings-table">
+          <div class="settings-row">
+            <span class="settings-key">SMTP_USER</span>
+            <span class="settings-val">Your Gmail address (e.g. you@gmail.com)</span>
+          </div>
+          <div class="settings-row">
+            <span class="settings-key">SMTP_PASSWORD</span>
+            <span class="settings-val">Gmail App Password — <a href="https://myaccount.google.com/apppasswords" target="_blank">generate one here</a></span>
+          </div>
+          <div class="settings-row">
+            <span class="settings-key">OPENAI_API_KEY</span>
+            <span class="settings-val">Used for email classification (GPT-4o)</span>
+          </div>
+        </div>
+
+        <div class="alert alert-info mt-md" style="font-size:13px;">
+          <strong>Gmail setup:</strong> Enable IMAP in Gmail Settings → See All Settings → Forwarding and POP/IMAP → Enable IMAP.
+          Then create an App Password at myaccount.google.com/apppasswords (requires 2FA enabled).
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Apply agent info + portal guide -->
+  <div>
+    <div class="card mb-md">
+      <div class="card-header"><h2><i class="fa-solid fa-robot"></i> Auto-Apply Agent</h2></div>
+      <div class="card-body">
+        <p class="muted mb-md">
+          The apply agent uses headless Chrome (Selenium) to submit your tailored resume to job portals.
+        </p>
+
+        <div class="portal-guide">
+          <div class="portal-row">
+            <div class="portal-name"><i class="fa-brands fa-linkedin" style="color:#0a66c2"></i> LinkedIn</div>
+            <div class="portal-note">Easy Apply only. Login required — log in to LinkedIn in Chrome first.</div>
+          </div>
+          <div class="portal-row">
+            <div class="portal-name"><img src="https://static.naukimg.com/s/4/100/i/naukri_Logo.png" style="height:16px;"> Naukri</div>
+            <div class="portal-note">Clicks Apply, uploads resume. Login required.</div>
+          </div>
+          <div class="portal-row">
+            <div class="portal-name"><i class="fa-solid fa-briefcase" style="color:#2164f3"></i> Indeed</div>
+            <div class="portal-note">Easily Apply jobs. Some jobs redirect to company site.</div>
+          </div>
+          <div class="portal-row">
+            <div class="portal-name"><i class="fa-solid fa-door-open" style="color:#0caa41"></i> Glassdoor</div>
+            <div class="portal-note">Usually redirects to company ATS — marks as manual.</div>
+          </div>
+        </div>
+
+        <div class="alert alert-info mt-md" style="font-size:13px;">
+          <strong>Note:</strong> If the bot is blocked by CAPTCHA or login wall, it marks the job as
+          "Manual Apply Needed" and shows an "Open Job Page" button. Portal login sessions are not
+          persisted between runs — for best results, log into portals in your default Chrome profile.
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h2><i class="fa-solid fa-circle-info"></i> How It Works</h2></div>
+      <div class="card-body">
+        <ol class="how-it-works">
+          <li><i class="fa-solid fa-upload"></i> <strong>Upload PDF</strong> — paste job URL + upload resume PDF</li>
+          <li><i class="fa-solid fa-magnifying-glass-chart"></i> <strong>AI Analysis</strong> — agent scrapes JD, rewrites resume, generates cover letter</li>
+          <li><i class="fa-solid fa-rocket"></i> <strong>Auto-Apply</strong> — click "Auto-Apply" on any application to submit via browser bot</li>
+          <li><i class="fa-solid fa-file-arrow-down"></i> <strong>Download PDF</strong> — download the ATS-optimised resume</li>
+          <li><i class="fa-solid fa-envelope"></i> <strong>Email Tracking</strong> — tracker monitors inbox, detects replies from hiring teams</li>
+          <li><i class="fa-solid fa-timeline"></i> <strong>Timeline</strong> — full history per application: applied, interview invite, offer, rejection</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function trackerAction(action) {
+  const resultEl = document.getElementById('tracker-action-result');
+  resultEl.className = 'parse-status parse-status-loading';
+  resultEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Working…';
+  resultEl.classList.remove('hidden');
+
+  try {
+    const resp = await fetch(`/api/tracker/${action}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok || data.ok === undefined) {
+      resultEl.className = 'parse-status parse-status-success';
+      resultEl.textContent = action === 'poll'
+        ? `Poll complete — ${(data.status || {}).events_created || 0} total events.`
+        : `Tracker ${action === 'start' ? 'started' : 'stopped'} successfully.`;
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      resultEl.className = 'parse-status parse-status-error';
+      resultEl.textContent = data.error || 'Action failed.';
+    }
+  } catch(e) {
+    resultEl.className = 'parse-status parse-status-error';
+    resultEl.textContent = 'Network error.';
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,434 @@
+{% extends "base.html" %}
+{% block title %}{{ application.role or 'Application' }} – AI Job Agent{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <a href="{{ url_for('applications') }}" class="back-link">
+      <i class="fa-solid fa-arrow-left"></i> All Applications
+    </a>
+    <h1>{{ application.role or 'Untitled Role' }}</h1>
+    <p class="subtitle">{{ application.company or 'Unknown Company' }}</p>
+  </div>
+  <div class="header-actions">
+    <span class="badge badge-{{ application.status }} badge-lg" id="status-badge">{{ application.status|capitalize }}</span>
+    <!-- Apply button -->
+    {% if application.apply_status in ('not_applied', 'error', None) %}
+    <button class="btn btn-success" id="apply-btn" onclick="startApply({{ application.id }})">
+      <i class="fa-solid fa-rocket"></i> Auto-Apply
+    </button>
+    {% elif application.apply_status == 'in_progress' %}
+    <button class="btn btn-success" disabled>
+      <i class="fa-solid fa-spinner fa-spin"></i> Applying…
+    </button>
+    {% elif application.apply_status == 'applied' %}
+    <span class="badge badge-applied badge-lg"><i class="fa-solid fa-check"></i> Applied</span>
+    {% elif application.apply_status in ('captcha', 'manual') %}
+    <a href="{{ application.job_url }}" target="_blank" class="btn btn-outline">
+      <i class="fa-solid fa-arrow-up-right-from-square"></i> Apply Manually
+    </a>
+    {% endif %}
+    <button class="btn btn-outline" onclick="toggleEmailModal()">
+      <i class="fa-solid fa-paper-plane"></i> Send Email
+    </button>
+  </div>
+</div>
+
+<!-- Meta info bar -->
+<div class="meta-bar">
+  <div class="meta-item">
+    <i class="fa-solid fa-link"></i>
+    <a href="{{ application.job_url }}" target="_blank" rel="noopener" class="link-truncate">
+      {{ application.job_url or '—' }}
+    </a>
+  </div>
+  <div class="meta-item">
+    <i class="fa-solid fa-calendar"></i>
+    {{ application.created_at | string | truncate(19, True, '') }}
+  </div>
+  <div class="meta-item">
+    <i class="fa-solid fa-bell"></i>
+    Follow-up: {{ 'Sent' if application.follow_up_sent else 'Not sent' }}
+  </div>
+</div>
+
+<!-- Apply status bar (shown while applying) -->
+<div id="apply-status-bar" class="apply-status-bar hidden">
+  <div class="apply-status-inner">
+    <i class="fa-solid fa-spinner fa-spin"></i>
+    <span id="apply-status-msg">Launching browser…</span>
+  </div>
+  <div id="apply-result-area" class="hidden mt-sm"></div>
+</div>
+
+<!-- Tab navigation -->
+<div class="tabs mt-lg">
+  <button class="tab-btn active" onclick="switchTab('resumes', this)">Resumes</button>
+  <button class="tab-btn" onclick="switchTab('cover', this)">Cover Letter</button>
+  <button class="tab-btn" onclick="switchTab('jd', this)">Job Description</button>
+  <button class="tab-btn" onclick="switchTab('analysis', this)">Analysis</button>
+  <button class="tab-btn" onclick="switchTab('timeline', this)">
+    <i class="fa-solid fa-timeline"></i> Timeline
+    {% if events %}<span class="badge-count">{{ events|length }}</span>{% endif %}
+  </button>
+</div>
+
+<!-- Resumes tab -->
+<div id="tab-resumes" class="tab-content active">
+  <div class="two-col mt-md">
+    <div class="card">
+      <div class="card-header">
+        <h3>Original Resume</h3>
+        <button class="btn btn-sm btn-outline" onclick="copyText('orig-resume')">
+          <i class="fa-solid fa-copy"></i> Copy
+        </button>
+      </div>
+      <div class="card-body">
+        <pre id="orig-resume" class="code-block">{{ application.resume_original or 'No original resume saved.' }}</pre>
+      </div>
+    </div>
+    <div class="card highlight-card">
+      <div class="card-header">
+        <h3>Tailored Resume <span class="badge badge-applied">AI Generated</span></h3>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-sm btn-outline" onclick="copyText('tailored-resume')">
+            <i class="fa-solid fa-copy"></i> Copy
+          </button>
+          <a class="btn btn-sm btn-primary" href="/api/applications/{{ application.id }}/download-resume" download>
+            <i class="fa-solid fa-file-arrow-down"></i> Download PDF
+          </a>
+        </div>
+      </div>
+      {% if application.ats_score is not none %}
+      <div class="card-body" style="padding-bottom:0;">
+        <div class="ats-score-wrap"
+             style="--ats-pct:{{ application.ats_score * 3.6 }}deg;
+                    --ats-color:{% if application.ats_score >= 75 %}#16a34a{% elif application.ats_score >= 50 %}#f59e0b{% else %}#dc2626{% endif %};">
+          <div class="ats-score-ring"><span>{{ application.ats_score }}%</span></div>
+          <div class="ats-score-label">
+            <strong>ATS Score</strong>
+            {% if application.ats_score >= 75 %}Strong match{% elif application.ats_score >= 50 %}Moderate match{% else %}Needs improvement{% endif %}
+          </div>
+        </div>
+      </div>
+      {% endif %}
+      <div class="card-body">
+        <pre id="tailored-resume" class="code-block">{{ application.resume_tailored or 'No tailored resume yet.' }}</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Cover letter tab -->
+<div id="tab-cover" class="tab-content hidden">
+  <div class="card mt-md">
+    <div class="card-header">
+      <h3>Cover Letter</h3>
+      <button class="btn btn-sm btn-outline" onclick="copyText('cover-letter-text')">
+        <i class="fa-solid fa-copy"></i> Copy
+      </button>
+    </div>
+    <div class="card-body">
+      <pre id="cover-letter-text" class="code-block cover-letter">{{ application.cover_letter or 'No cover letter generated.' }}</pre>
+    </div>
+  </div>
+</div>
+
+<!-- JD tab -->
+<div id="tab-jd" class="tab-content hidden">
+  <div class="card mt-md">
+    <div class="card-header"><h3>Job Description</h3></div>
+    <div class="card-body">
+      <pre class="code-block">{{ application.jd_text or 'No job description saved.' }}</pre>
+    </div>
+  </div>
+</div>
+
+<!-- Analysis tab -->
+<div id="tab-analysis" class="tab-content hidden">
+  <div class="card mt-md">
+    <div class="card-header"><h3>Gap Analysis &amp; ATS Report</h3></div>
+    <div class="card-body">
+      {% if application.ats_score is not none %}
+      <div class="ats-score-wrap mb-md"
+           style="--ats-pct:{{ application.ats_score * 3.6 }}deg;
+                  --ats-color:{% if application.ats_score >= 75 %}#16a34a{% elif application.ats_score >= 50 %}#f59e0b{% else %}#dc2626{% endif %};">
+        <div class="ats-score-ring"><span>{{ application.ats_score }}%</span></div>
+        <div class="ats-score-label">
+          <strong>ATS Score — {% if application.ats_score >= 75 %}Strong match{% elif application.ats_score >= 50 %}Moderate match{% else %}Needs improvement{% endif %}</strong>
+          How well this resume passes ATS filtering for this specific job.
+        </div>
+      </div>
+      {% endif %}
+      <pre class="code-block">{{ application.analysis or 'Run the agent to generate an analysis.' }}</pre>
+    </div>
+  </div>
+</div>
+
+<!-- Timeline tab -->
+<div id="tab-timeline" class="tab-content hidden">
+  <div class="two-col-timeline mt-md">
+    <!-- Left: event timeline -->
+    <div class="card">
+      <div class="card-header">
+        <h3>Application Timeline</h3>
+        <button class="btn btn-sm btn-outline" onclick="toggleAddNote()">
+          <i class="fa-solid fa-plus"></i> Add Note
+        </button>
+      </div>
+      <div class="card-body">
+        <!-- Add note form -->
+        <div id="add-note-form" class="hidden mb-md">
+          <textarea id="note-text" class="input textarea" rows="3" placeholder="Add a manual note…"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <select id="note-type" class="input" style="width:160px;">
+              <option value="note">Note</option>
+              <option value="interview_invite">Interview</option>
+              <option value="offer">Offer</option>
+              <option value="rejection">Rejection</option>
+              <option value="follow_up_request">Follow-up</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="addNote({{ application.id }})">Save</button>
+            <button class="btn btn-outline btn-sm" onclick="toggleAddNote()">Cancel</button>
+          </div>
+        </div>
+
+        {% if events %}
+        <div class="timeline">
+          {% for ev in events %}
+          <div class="timeline-item tl-{{ ev.event_type }}">
+            <div class="timeline-dot">
+              {% if ev.event_type == 'interview_invite' %}<i class="fa-solid fa-calendar-check"></i>
+              {% elif ev.event_type == 'offer' %}<i class="fa-solid fa-trophy"></i>
+              {% elif ev.event_type == 'rejection' %}<i class="fa-solid fa-xmark"></i>
+              {% elif ev.event_type == 'applied' %}<i class="fa-solid fa-paper-plane"></i>
+              {% elif ev.event_type in ('captcha_blocked','manual_needed') %}<i class="fa-solid fa-triangle-exclamation"></i>
+              {% elif ev.event_type == 'assessment' %}<i class="fa-solid fa-laptop-code"></i>
+              {% elif ev.event_type == 'note' %}<i class="fa-solid fa-note-sticky"></i>
+              {% else %}<i class="fa-solid fa-circle-dot"></i>{% endif %}
+            </div>
+            <div class="timeline-content">
+              <div class="tl-header">
+                <span class="tl-title">{{ ev.title }}</span>
+                <span class="tl-source tl-src-{{ ev.source }}">{{ ev.source }}</span>
+                <span class="tl-date">{{ ev.created_at | string | truncate(16, True, '') }}</span>
+              </div>
+              {% if ev.body %}
+              <div class="tl-body">{{ ev.body }}</div>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <i class="fa-solid fa-timeline"></i>
+          <p>No events yet. Apply to start tracking, or add a manual note.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Right: apply summary card -->
+    <div>
+      <div class="card mb-md">
+        <div class="card-header"><h3>Apply Status</h3></div>
+        <div class="card-body">
+          <div class="apply-summary">
+            <div class="apply-status-chip apply-chip-{{ application.apply_status or 'not_applied' }}">
+              {% if application.apply_status == 'applied' %}<i class="fa-solid fa-check-circle"></i> Applied via Bot
+              {% elif application.apply_status == 'in_progress' %}<i class="fa-solid fa-spinner fa-spin"></i> In Progress
+              {% elif application.apply_status == 'captcha' %}<i class="fa-solid fa-shield-halved"></i> Blocked by CAPTCHA
+              {% elif application.apply_status == 'manual' %}<i class="fa-solid fa-hand-pointer"></i> Manual Apply Needed
+              {% elif application.apply_status == 'error' %}<i class="fa-solid fa-circle-exclamation"></i> Error
+              {% else %}<i class="fa-solid fa-clock"></i> Not Applied Yet{% endif %}
+            </div>
+            {% if application.apply_method %}
+            <div class="mt-sm muted">Portal: <strong>{{ application.apply_method|capitalize }}</strong></div>
+            {% endif %}
+            {% if application.apply_error %}
+            <div class="tl-body mt-sm">{{ application.apply_error }}</div>
+            {% endif %}
+            {% if application.apply_status in ('captcha', 'manual', 'error', None, 'not_applied') %}
+            <a href="{{ application.job_url }}" target="_blank" class="btn btn-outline btn-full mt-md">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i> Open Job Page
+            </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>Email Tracking</h3></div>
+        <div class="card-body">
+          {% if application.last_email_at %}
+          <p class="muted">Last email: {{ application.last_email_at | string | truncate(16, True, '') }}</p>
+          {% endif %}
+          <p class="muted" style="font-size:12px;">
+            The tracker monitors your inbox and auto-detects interview invites, offers, and rejections.
+            Configure your Gmail in <a href="/settings">Settings</a>.
+          </p>
+          <button class="btn btn-outline btn-full mt-sm" onclick="pollEmailNow()">
+            <i class="fa-solid fa-rotate"></i> Check Inbox Now
+          </button>
+          <div id="poll-result" class="hidden mt-sm"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Email modal -->
+<div id="email-modal" class="modal hidden">
+  <div class="modal-overlay" onclick="toggleEmailModal()"></div>
+  <div class="modal-box">
+    <h2>Send Cover Letter</h2>
+    <div class="form-group mt-md">
+      <label>Recipient Email</label>
+      <input type="email" id="to-email" class="input" placeholder="recruiter@company.com" />
+    </div>
+    <div class="form-group">
+      <label>Subject</label>
+      <input type="text" id="email-subject" class="input"
+        value="Application for {{ application.role }} at {{ application.company }}" />
+    </div>
+    <div class="modal-actions mt-md">
+      <button class="btn btn-outline" onclick="toggleEmailModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="sendEmail({{ application.id }})">
+        <i class="fa-solid fa-paper-plane"></i> Send
+      </button>
+    </div>
+    <div id="email-result" class="mt-sm"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.add('hidden'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.remove('hidden');
+  btn.classList.add('active');
+}
+
+function copyText(elId) {
+  const text = document.getElementById(elId).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target.closest('button');
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
+    setTimeout(() => btn.innerHTML = orig, 1500);
+  });
+}
+
+function toggleEmailModal() {
+  document.getElementById('email-modal').classList.toggle('hidden');
+}
+
+async function sendEmail(appId) {
+  const toEmail = document.getElementById('to-email').value.trim();
+  if (!toEmail) { alert('Enter recipient email'); return; }
+  const resultEl = document.getElementById('email-result');
+  resultEl.textContent = 'Sending…';
+  const resp = await fetch('/api/send-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ app_id: appId, to_email: toEmail }),
+  });
+  const { result } = await resp.json();
+  resultEl.textContent = result === 'SUCCESS' ? '✓ Email sent!' : result;
+  resultEl.className = result === 'SUCCESS' ? 'alert alert-success mt-sm' : 'alert alert-error mt-sm';
+}
+
+// ── Auto-Apply ────────────────────────────────────────────────────────────────
+async function startApply(appId) {
+  const btn = document.getElementById('apply-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Starting…'; }
+
+  const bar = document.getElementById('apply-status-bar');
+  bar.classList.remove('hidden');
+  document.getElementById('apply-status-msg').textContent = 'Initialising browser…';
+
+  const resp = await fetch(`/api/apply/${appId}`, { method: 'POST' });
+  const { run_id, error } = await resp.json();
+  if (error) {
+    document.getElementById('apply-status-msg').textContent = 'Error: ' + error;
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rocket"></i> Auto-Apply'; }
+    return;
+  }
+
+  const evtSource = new EventSource(`/api/apply/stream/${run_id}`);
+  evtSource.onmessage = function(e) {
+    const data = JSON.parse(e.data);
+    if (data.message && data.message !== 'ping') {
+      document.getElementById('apply-status-msg').textContent = data.message;
+    }
+    if (data.done) {
+      evtSource.close();
+      showApplyResult(data);
+    }
+  };
+  evtSource.onerror = function() { evtSource.close(); };
+}
+
+function showApplyResult(data) {
+  const resultArea = document.getElementById('apply-result-area');
+  resultArea.classList.remove('hidden');
+  const statusIcons = {
+    success: '<i class="fa-solid fa-check-circle" style="color:#16a34a"></i>',
+    captcha: '<i class="fa-solid fa-shield-halved" style="color:#f59e0b"></i>',
+    manual:  '<i class="fa-solid fa-hand-pointer" style="color:#3b82f6"></i>',
+    error:   '<i class="fa-solid fa-circle-exclamation" style="color:#dc2626"></i>',
+  };
+  const icon = statusIcons[data.status] || '';
+  resultArea.innerHTML = `<div class="apply-result-msg">${icon} ${data.message}</div>
+    <button class="btn btn-sm btn-outline mt-sm" onclick="location.reload()">Refresh Page</button>`;
+  // Switch to timeline tab
+  setTimeout(() => {
+    const timelineBtn = document.querySelector('.tab-btn:last-child');
+    if (timelineBtn) timelineBtn.click();
+  }, 1000);
+}
+
+// ── Manual note ───────────────────────────────────────────────────────────────
+function toggleAddNote() {
+  document.getElementById('add-note-form').classList.toggle('hidden');
+}
+
+async function addNote(appId) {
+  const text = document.getElementById('note-text').value.trim();
+  const type = document.getElementById('note-type').value;
+  if (!text) return;
+  await fetch(`/api/applications/${appId}/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event_type: type, title: document.getElementById('note-type').options[document.getElementById('note-type').selectedIndex].text, body: text }),
+  });
+  location.reload();
+}
+
+// ── Email poll ────────────────────────────────────────────────────────────────
+async function pollEmailNow() {
+  const el = document.getElementById('poll-result');
+  el.className = 'parse-status parse-status-loading';
+  el.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking inbox…';
+  el.classList.remove('hidden');
+  try {
+    const resp = await fetch('/api/tracker/poll', { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      el.className = 'parse-status parse-status-success';
+      el.textContent = `Done — ${data.status.events_created} events found total.`;
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      el.className = 'parse-status parse-status-error';
+      el.textContent = data.error || 'Poll failed.';
+    }
+  } catch(err) {
+    el.className = 'parse-status parse-status-error';
+    el.textContent = 'Network error.';
+  }
+}
+</script>
+{% endblock %}

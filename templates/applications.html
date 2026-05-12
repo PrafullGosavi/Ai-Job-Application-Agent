@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Applications – AI Job Agent{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>All Applications</h1>
+  <a href="{{ url_for('new_application') }}" class="btn btn-primary">
+    <i class="fa-solid fa-plus"></i> New
+  </a>
+</div>
+
+<!-- Filter bar -->
+<div class="filter-bar">
+  <input type="text" id="search-input" class="input search-input" placeholder="Search company or role…" oninput="filterTable()" />
+  <select id="status-filter" class="input select-input" onchange="filterTable()">
+    <option value="">All Statuses</option>
+    <option value="pending">Pending</option>
+    <option value="applied">Applied</option>
+    <option value="interview">Interview</option>
+    <option value="offer">Offer</option>
+    <option value="rejected">Rejected</option>
+  </select>
+</div>
+
+<div class="card mt-md">
+  <div class="card-body p-0">
+    {% if applications %}
+    <table class="table" id="apps-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Company</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Follow-up</th>
+          <th>Date</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for app in applications %}
+        <tr data-company="{{ (app.company or '')|lower }}" data-role="{{ (app.role or '')|lower }}" data-status="{{ app.status }}">
+          <td>{{ app.id }}</td>
+          <td>{{ app.company or '—' }}</td>
+          <td>{{ app.role or '—' }}</td>
+          <td>
+            <select class="badge-select badge-{{ app.status }}" onchange="updateStatus({{ app.id }}, this)">
+              <option value="pending"   {% if app.status=='pending'   %}selected{% endif %}>Pending</option>
+              <option value="applied"   {% if app.status=='applied'   %}selected{% endif %}>Applied</option>
+              <option value="interview" {% if app.status=='interview' %}selected{% endif %}>Interview</option>
+              <option value="offer"     {% if app.status=='offer'     %}selected{% endif %}>Offer</option>
+              <option value="rejected"  {% if app.status=='rejected'  %}selected{% endif %}>Rejected</option>
+            </select>
+          </td>
+          <td>
+            {% if app.follow_up_sent %}
+              <span class="badge badge-applied"><i class="fa-solid fa-check"></i> Sent</span>
+            {% else %}
+              <span class="badge badge-pending">No</span>
+            {% endif %}
+          </td>
+          <td>{{ app.created_at | string | truncate(10, True, '') }}</td>
+          <td class="actions-cell">
+            <a href="{{ url_for('view_application', app_id=app.id) }}" class="btn btn-sm btn-outline">View</a>
+            <button class="btn btn-sm btn-danger" onclick="deleteApp({{ app.id }}, this)">Delete</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <i class="fa-solid fa-inbox"></i>
+      <p>No applications yet. <a href="{{ url_for('new_application') }}">Create one →</a></p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function filterTable() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const status = document.getElementById('status-filter').value;
+  document.querySelectorAll('#apps-table tbody tr').forEach(row => {
+    const matchText = row.dataset.company.includes(q) || row.dataset.role.includes(q);
+    const matchStatus = !status || row.dataset.status === status;
+    row.style.display = matchText && matchStatus ? '' : 'none';
+  });
+}
+
+async function updateStatus(id, sel) {
+  const newStatus = sel.value;
+  sel.className = `badge-select badge-${newStatus}`;
+  const row = sel.closest('tr');
+  if (row) row.dataset.status = newStatus;
+  await fetch(`/api/applications/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: newStatus }),
+  });
+}
+
+async function deleteApp(id, btn) {
+  if (!confirm('Delete this application?')) return;
+  const resp = await fetch(`/api/applications/${id}`, { method: 'DELETE' });
+  const { success } = await resp.json();
+  if (success) {
+    btn.closest('tr').remove();
+  }
+}
+</script>
+{% endblock %}

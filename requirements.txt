@@ -1,0 +1,14 @@
+flask
+python-dotenv
+pymysql
+requests
+beautifulsoup4
+lxml
+openai
+langchain
+langchain-openai
+langchain-core
+pypdf
+reportlab
+selenium
+webdriver-manager

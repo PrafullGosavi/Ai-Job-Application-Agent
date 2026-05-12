@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}AI Job Agent{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" crossorigin="anonymous" />
+</head>
+<body>
+  <div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <i class="fa-solid fa-robot"></i>
+        <span>AI Job Agent</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="{{ url_for('index') }}" class="nav-item {% if request.endpoint == 'index' %}active{% endif %}">
+          <i class="fa-solid fa-gauge-high"></i> <span>Dashboard</span>
+        </a>
+        <a href="{{ url_for('new_application') }}" class="nav-item {% if request.endpoint == 'new_application' %}active{% endif %}">
+          <i class="fa-solid fa-plus-circle"></i> <span>New Application</span>
+        </a>
+        <a href="{{ url_for('applications') }}" class="nav-item {% if request.endpoint in ('applications','view_application') %}active{% endif %}">
+          <i class="fa-solid fa-table-list"></i> <span>Applications</span>
+        </a>
+        <a href="{{ url_for('settings') }}" class="nav-item {% if request.endpoint == 'settings' %}active{% endif %}">
+          <i class="fa-solid fa-gear"></i> <span>Settings</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <span>Powered by GPT-4o</span>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>
